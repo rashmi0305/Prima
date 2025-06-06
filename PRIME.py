@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 # plt.style.use('seaborn-darkgrid')
 
 # === LOAD DATA ===
-file_path=r"C:\Users\rashm\OneDrive\Desktop\PRIMA2\RUT Puts 2008.xlsx"
+file_path=r"C:\Users\rashm\OneDrive\Desktop\PRIMA2\Prima\Prima\RUT Puts 2008.xlsx"
 df = pd.read_excel(file_path, parse_dates=['Date', 'Expiration'])
 
 # Filter data for 'IWM' and 'put' options only
@@ -38,6 +38,7 @@ third_fridays = sorted(list(set(third_fridays)))
 print("Unique 3rd Friday expiration dates found in data:", third_fridays)
 # === 1. Identify trades: spread=20%, short strike abs(Delta) ~ 0.3, 3rd Friday expiration in following month ===
 
+
 SPREAD = 0.15
 
 def find_nearest_strike_row(df, date, target_strike):
@@ -50,51 +51,50 @@ def find_nearest_strike_row(df, date, target_strike):
 
 def find_short_strike_trades(df, trade_dates, spread=SPREAD):
     trades = []
-    count=0
+    count = 0
+    
     for trade_date in trade_dates:
-       
-
-        df_trade = df[(df['Date'] == trade_date) ]
+        df_trade = df[df['Date'] == trade_date]
         if df_trade.empty:
             continue
-        
-        stock_price = df_trade['StockPrice'].iloc[0]
+
+        # Filter candidates within delta range
         candidates = df_trade[(df_trade['Delta'].abs() >= 0.28) & (df_trade['Delta'].abs() <= 0.32)]
         if candidates.empty:
             continue
-        count+=1
-        candidates = candidates.copy()
-        # print("Candidates for trade date", trade_date, ":", candidates)
-        candidates['StrikeDiff'] = (candidates['Strike'] - stock_price).abs()
-        short_strike_row = candidates.sort_values('StrikeDiff').iloc[0]
-        short_strike = short_strike_row['Strike']
-        option_price_short = short_strike_row['OptionPrice']
 
-        long_strike = short_strike *0.85
-        long_strike_row = find_nearest_strike_row(df, trade_date, long_strike)
-        if long_strike_row is None:
-            continue
+        for _, short_strike_row in candidates.iterrows():
+            short_strike = short_strike_row['Strike']
+            option_price_short = short_strike_row['OptionPrice']
+            expiration = short_strike_row['Expiration']
+            stock_price = short_strike_row['StockPrice']
 
-        option_price_long = long_strike_row['OptionPrice']
-        long_strike = long_strike_row['Strike']
+            long_strike_target = short_strike * 0.85
+            long_strike_row = find_nearest_strike_row(df, trade_date, long_strike_target)
+            if long_strike_row is None:
+                continue
 
-        trade = {
-            'OpenDate': trade_date,
-            'Expiration': expiration,
-            'ShortStrike': short_strike,
-            'LongStrike': long_strike,
-            'ShortPrice': option_price_short,
-            'LongPrice': option_price_long,
-            'Spread': spread,
-            'StockPriceAtOpen': stock_price,
-        }
-        trades.append(trade)
-    print("Number of trades found:", count)
-    
-    print("Number of trades found:", len(trades))
+            option_price_long = long_strike_row['OptionPrice']
+            long_strike = long_strike_row['Strike']
+
+            trade = {
+                'OpenDate': trade_date,
+                'Expiration': expiration,
+                'ShortStrike': short_strike,
+                'LongStrike': long_strike,
+                'ShortPrice': option_price_short,
+                'LongPrice': option_price_long,
+                'Spread': spread,
+                'StockPriceAtOpen': stock_price,
+            }
+            trades.append(trade)
+            count += 1
+
+    print("Number of total valid trades found:", count)
     if not trades:
         print("No trades found.")
     return trades
+
 
 
 
@@ -113,6 +113,7 @@ for exp in expiration_dates:
         trade_dates.append(next_day)
 
 trades = find_short_strike_trades(df, trade_dates)
+
 
 # === 2. Define Profit/Loss at Expiration for Bull Put Spread ===
 
@@ -145,8 +146,7 @@ def bull_put_spread_pnl(stock_price, short_strike, long_strike, net_premium):
 
 
 for trade in trades:
-    print("=================================================================")
-    print("Example trade:", trade)
+   
     expiration_date = trade['Expiration']
     stock_data = df[df['Expiration'] == expiration_date]
 
@@ -196,126 +196,131 @@ plt.show()
 
 def simulate_rolling_trades(df, initial_trades, thresholds=[0.05, 0.1]):
     rolled_trades_results = {th: [] for th in thresholds}
+
     for threshold in thresholds:
         for trade in initial_trades:
-            # Setup initial trade parameters
-            current_trade = trade.copy()
-            open_date = current_trade['OpenDate']
-            expiration = current_trade['Expiration']
-            short_strike = current_trade['ShortStrike']
-            long_strike = current_trade['LongStrike']
-            spread = current_trade['Spread']
+            trade_chain = []
 
-            net_premium = current_trade['ShortPrice'] - current_trade['LongPrice']
-            rolled = []
-            current_open_date = open_date
-            current_expiration = expiration
-            current_short_strike = short_strike
-            current_long_strike = long_strike
-            current_net_premium = net_premium
-            current_spread = spread
+            open_date = trade['OpenDate']
+            expiration = trade['Expiration']
+            short_strike = trade['ShortStrike']
+            long_strike = trade['LongStrike']
+            spread = trade['Spread']
+            net_premium = trade['ShortPrice'] - trade['LongPrice']
 
-            method_results = {'method1': [], 'method2': []}
+            # Step 1: Check if stock price falls below ShortStrike before expiration
+            df_initial = df[(df['Date'] >= open_date) & (df['Date'] <= expiration)]
+            condition1 = df_initial['StockPrice'] <= short_strike
 
-            for method in ['method1', 'method2']:
-                trades_chain = []
-                open_d = current_open_date
-                exp_d = current_expiration
-                short_s = current_short_strike
-                long_s = current_long_strike
-                net_p = current_net_premium
-                spread_ = current_spread
+            if condition1.any():
+                # Get first roll date
+                roll_date = df_initial[condition1]['Date'].iloc[0]
+                stock_price_on_roll = df_initial[condition1]['StockPrice'].iloc[0]
 
-                df_period = df[(df['Date'] >= open_d) & (df['Date'] <= exp_d)].copy()
-                rolled_trade_active = True
-                # print(f"def period {df_period}")
-                print(f"stock price open {df_period['StockPrice']}")
-                print(f"LONG STRINKE {long_s}")
-                print(f"short strike {short_s}")
-            
-                while rolled_trade_active and not df_period.empty:
-                    # Find if stock price drops below (1-threshold)*long strike
-                    trigger_price = (1 - threshold) * long_s
-                    condition = df_period['StockPrice'] <= trigger_price
-                    
+                pnl = bull_put_spread_pnl(np.array([stock_price_on_roll]), short_strike, long_strike, net_premium)
+                trade_chain.append({
+                    'OpenDate': open_date,
+                    'Expiration': expiration,
+                    'ShortStrike': short_strike,
+                    'LongStrike': long_strike,
+                    'NetPremium': net_premium,
+                    'CloseDate': roll_date,
+                    'FinalStockPrice': stock_price_on_roll,
+                    'PnL': pnl
+                })
 
-                    if not condition.any():
-                        final_stock_price = df_period['StockPrice'].iloc[-1]
-                        pnl = bull_put_spread_pnl(np.array([final_stock_price]), short_s, long_s, net_p)
-                        trades_chain.append({
-                            'OpenDate': open_d,
-                            'Expiration': exp_d,
-                            'ShortStrike': short_s,
-                            'LongStrike': long_s,
-                            'NetPremium': net_p,
-                            'FinalStockPrice': final_stock_price,
+                # New trade with same Short Strike, Long Strike = 0.9 * Short Strike, new expiration
+                new_long_strike = round(0.9 * short_strike, 2)
+                new_short_strike = short_strike  # remains same
+
+                roll_expirations = sorted([d for d in third_fridays if d >= roll_date + pd.DateOffset(months=1)])
+                if not roll_expirations:
+                    continue
+                new_expiration = roll_expirations[0]
+
+                df_new_trade = df[(df['Date'] <= roll_date) & (df['Expiration'] == new_expiration)]
+                df_new_trade = df_new_trade.sort_values(by='Date', ascending=False).iloc[0:1]
+
+                short_row = df_new_trade[df_new_trade['Strike'] == new_short_strike]
+                long_row = df_new_trade[df_new_trade['Strike'] == new_long_strike]
+
+                if short_row.empty or long_row.empty:
+                    continue
+
+                new_short_price = short_row['OptionPrice'].iloc[0]
+                new_long_price = long_row['OptionPrice'].iloc[0]
+                new_net_premium = new_short_price - new_long_price
+                
+                # Step 2: Track new trade for threshold rolling
+                current_open = roll_date
+                current_exp = new_expiration
+                current_short = new_short_strike
+                current_long = new_long_strike
+                current_net = new_net_premium
+
+                while True:
+                    df_track = df[(df['Date'] >= current_open) & (df['Date'] <= current_exp)]
+                    trigger_price = (1 - threshold) * current_long
+                    condition2 = df_track['StockPrice'] <= trigger_price
+
+                    if not condition2.any():
+                        final_price = df_track['StockPrice'].iloc[-1]
+                        pnl = bull_put_spread_pnl(np.array([final_price]), current_short, current_long, current_net)
+                        trade_chain.append({
+                            'OpenDate': current_open,
+                            'Expiration': current_exp,
+                            'ShortStrike': current_short,
+                            'LongStrike': current_long,
+                            'NetPremium': current_net,
+                            'CloseDate': current_exp,
+                            'FinalStockPrice': final_price,
                             'PnL': pnl
                         })
-                        rolled_trade_active = False
-                        # print(f"Trade closed at expiration on {exp_d} with stock price {final_stock_price}")
+                        break
+
+                    roll_date2 = df_track[condition2]['Date'].iloc[0]
+                    stock_price2 = df_track[condition2]['StockPrice'].iloc[0]
+                    pnl = bull_put_spread_pnl(np.array([stock_price2]), current_short, current_long, current_net)
+
+                    trade_chain.append({
+                        'OpenDate': current_open,
+                        'Expiration': current_exp,
+                        'ShortStrike': current_short,
+                        'LongStrike': current_long,
+                        'NetPremium': current_net,
+                        'CloseDate': roll_date2,
+                        'FinalStockPrice': stock_price2,
+                        'PnL': pnl
+                    })
+
+                    if method == 'method1':
+                        new_long = round(max((1 + 0.5 * threshold) * stock_price2, 1.025 * stock_price2), 2)
                     else:
-                        print(f"Trigger price: {trigger_price}, Condition: {condition.any()}")
-                        # Roll trade on first occurrence
-                        roll_date = df_period[condition]['Date'].iloc[0]
-                        stock_price_on_roll = df_period[condition]['StockPrice'].iloc[0]
-                        print(f"Rolling trade on {roll_date} with stock price {stock_price_on_roll}")
+                        new_long = round(1.025 * stock_price2, 2)
+                    new_short = round(new_long / (1 - spread), 2)
 
-                        # Close current trade on roll_date
-                        # Calculate P/L at roll date
-                        pnl = bull_put_spread_pnl(np.array([stock_price_on_roll]), short_s, long_s, net_p)
+                    df_new_trade2 = df[(df['Date'] <= roll_date2) & (df['Expiration'] == current_exp)]
+                    df_new_trade2 = df_new_trade2.sort_values(by='Date', ascending=False).iloc[0:1]
 
-                        trades_chain.append({
-                            'OpenDate': open_d,
-                            'Expiration': exp_d,
-                            'ShortStrike': short_s,
-                            'LongStrike': long_s,
-                            'NetPremium': net_p,
-                            'FinalStockPrice': stock_price_on_roll,
-                            'PnL': pnl,
-                            'CloseDate': roll_date
-                        })
+                    short_row2 = df_new_trade2[df_new_trade2['Strike'] == new_short]
+                    long_row2 = df_new_trade2[df_new_trade2['Strike'] == new_long]
 
-                        # Open new trade same spread and expiration >= 3 months away
-                        roll_expiration_candidates = sorted([d for d in third_fridays if d >= roll_date + pd.DateOffset(months=3)])
-                        if len(roll_expiration_candidates) == 0:
-                            rolled_trade_active = False
-                            break
-                        new_expiration = roll_expiration_candidates[0]
+                    if short_row2.empty or long_row2.empty:
+                        break
+               
+                    new_short_price2 = short_row2['OptionPrice'].iloc[0]
+                    new_long_price2 = long_row2['OptionPrice'].iloc[0]
+                    new_net = new_short_price2 - new_long_price2
 
-                        if method == 'method1':
-                            new_long_strike = max((1 + 0.5*threshold)*stock_price_on_roll, 1.025*stock_price_on_roll)
-                        else:
-                            new_long_strike = 1.025*stock_price_on_roll
-                        new_long_strike = round(new_long_strike, 2)
-                        new_short_strike = round(new_long_strike / (1 - spread_), 2)
-                        df_new_trade = df[(df['Date'] <= roll_date) & (df['Expiration'] == new_expiration)]
-                        if not df_new_trade.empty:
-                           df_new_trade = df_new_trade.sort_values(by='Date', ascending=False).iloc[0:1]
+                    current_open = roll_date2
+                    current_short = new_short
+                    current_long = new_long
+                    current_net = new_net
 
-                        short_option_row = df_new_trade[df_new_trade['Strike'] == new_short_strike]
-                        long_option_row = df_new_trade[df_new_trade['Strike'] == new_long_strike]
+                rolled_trades_results[threshold].append(trade_chain)
 
-                        if short_option_row.empty or long_option_row.empty:
-                            # Skip if prices not available
-                            rolled_trade_active = False
-                            break
-
-                        new_short_price = short_option_row['OptionPrice'].iloc[0]
-                        new_long_price = long_option_row['OptionPrice'].iloc[0]
-                        new_net_premium = new_short_price - new_long_price
-
-                        # Update for next iteration
-                        open_d = roll_date
-                        exp_d = new_expiration
-                        short_s = new_short_strike
-                        long_s = new_long_strike
-                        net_p = new_net_premium
-
-                        df_period = df[(df['Date'] >= open_d) & (df['Date'] <= exp_d)].copy()
-
-                method_results[method] = trades_chain
-            rolled_trades_results[threshold].append(method_results)
     return rolled_trades_results
+rolled_results = simulate_rolling_trades(df, trades, thresholds=[0.05, 0.1])
 
 # Run simulation on first 5 trades for demo (to limit compute)
 rolled_results = simulate_rolling_trades(df, trades, thresholds=[0.05, 0.1])
