@@ -3,7 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 from datetime import datetime, timedelta
-
+portfolio_value = 100000  # Initial portfolio value
 # plt.style.use('seaborn-darkgrid')
 
 # === LOAD DATA ===
@@ -44,8 +44,8 @@ print("Unique 3rd Friday expiration dates found in data:", third_fridays)
 
 SPREAD = 0.15
 
-def find_nearest_strike_row(df, date, target_strike):
-    df_filtered = df[df['Date'] == date].copy()
+def find_nearest_strike_row(df, date, exp,sp, target_strike):
+    df_filtered = df[(df['Date'] == date) & (df['Expiration']==exp) &(df['StockPrice']==sp)].copy()
     if df_filtered.empty:
         return None
     df_filtered['StrikeDiff'] = (df_filtered['Strike'] - target_strike).abs()
@@ -77,13 +77,15 @@ def find_short_strike_trades(df, trade_dates, spread=SPREAD):
         option_price_short = short_strike_row['OptionPrice']
 
         long_strike = short_strike *0.8
-        long_strike_row = find_nearest_strike_row(df, trade_date, long_strike)
+        long_strike_row = find_nearest_strike_row(df, trade_date, short_strike_row['Expiration'] ,stock_price,long_strike)
         if long_strike_row is None:
             continue
 
         option_price_long = long_strike_row['OptionPrice']
         long_strike = long_strike_row['Strike']
-
+        print("==========================")
+        print("Short Strike Row:", short_strike_row)
+        print("Long Strike Row:", long_strike_row)
         trade = {
             'OpenDate': trade_date,
             'Expiration': short_strike_row['Expiration'],
@@ -133,22 +135,24 @@ for trade in trades:
     print("=================================================================")
     print("Example trade:", trade)
     expiration_date = trade['Expiration']
-    stock_data = df[df['Expiration'] == expiration_date]
+    stock_data = df[df['Date'] <= expiration_date]
+    # i want tp print last row of stock_data
+    stock_data = stock_data.tail(1)  # Get the last row for the expiration date
 
+    print("Stock data for expiration date:", stock_data)
     if stock_data.empty:
         trade['StockPriceAtExpiration'] = None
         trade['PnL'] = None
         print("------------")
         continue
-
-    stock_price = stock_data['StockPrice'].iloc[0]
+    stock_price = stock_data['StockPrice'].iloc[-1] 
+    print("Stock price at expiration:", stock_price)
     trade['StockPriceAtExpiration'] = stock_price
 
     short_strike = trade['ShortStrike']
     long_strike = trade['LongStrike']
     net_premium = trade['ShortPrice'] - trade['LongPrice']
     trade['NetPremium'] = net_premium
-
     trade['PnL'] = bull_put_spread_pnl(
         stock_price, short_strike, long_strike, net_premium
     )
@@ -200,7 +204,7 @@ def simulate_rolling_trades(df, initial_trades, thresholds=[0.05, 0.1]):
                 roll_date = df_initial[condition1]['Date'].iloc[0]
                 stock_price_on_roll = df_initial[condition1]['StockPrice'].iloc[0]
                 pnl = bull_put_spread_pnl(np.array([stock_price_on_roll]), short_strike, long_strike, net_premium)
-               
+                
                 trade_chain.append({
                     'OpenDate': open_date,
                     'Expiration': expiration,
@@ -232,8 +236,8 @@ def simulate_rolling_trades(df, initial_trades, thresholds=[0.05, 0.1]):
             
 
                               # Add a delta filter around 0.3 for the short leg (common heuristic)
-                short_row = df[(df['Strike'] <= new_short_strike) ]
-                long_row = df[(df['Strike'] >= new_long_strike)]  
+                short_row = df_new_trade[(df_new_trade['Strike'] <= new_short_strike) ]
+                long_row = df_new_trade[(df_new_trade['Strike'] >= new_long_strike)]  
 
 
                 if short_row.empty or long_row.empty:
@@ -265,6 +269,16 @@ def simulate_rolling_trades(df, initial_trades, thresholds=[0.05, 0.1]):
                         print(f"condition2 not found for threshold {threshold}, rolling trades complete.")
                         final_price = df_track['StockPrice'].iloc[-1]
                         pnl = bull_put_spread_pnl(np.array([final_price]), current_short, current_long, current_net)
+                        trade_chain.append({
+                        'OpenDate': current_open,
+                        'Expiration': current_exp,
+                        'ShortStrike': current_short,
+                        'LongStrike': current_long,
+                        'NetPremium': current_net,
+                        'CloseDate': "-",
+                        'FinalStockPrice': final_price,
+                        'PnL': float(pnl)
+                    })
                        
                         break
                     count=1
@@ -294,8 +308,8 @@ def simulate_rolling_trades(df, initial_trades, thresholds=[0.05, 0.1]):
                     df_new_trade2 = df[(df['Date'] >= roll_date2) & (df['Expiration'] == current_exp)].copy()
                     
 
-                    short_row2 = df[df['Strike'] <= new_short]
-                    long_row2 = df[df['Strike'] >= new_long]
+                    short_row2 = df_new_trade2[df_new_trade2['Strike'] <= new_short]
+                    long_row2 = df_new_trade2[df_new_trade2['Strike'] >= new_long ]
 
                     if short_row2.empty or long_row2.empty:
                         print(f"Short or Long strike not found for new trade on {roll_date2}. Skipping trade--2.")
@@ -315,6 +329,23 @@ def simulate_rolling_trades(df, initial_trades, thresholds=[0.05, 0.1]):
             print(f"condition1 not found for threshold {threshold}, rolling trades complete.")
         print(f"----{count1}")
     return rolled_trades_results
+
+import pandas as pd
+
+def save_rolled_trades_to_csv(rolled_trades_results, filename='rolled_trades.csv'):
+    all_rows = []
+    for threshold, trade_chains in rolled_trades_results.items():
+        for trade_id, chain in enumerate(trade_chains):
+            for trade in chain:
+                row = trade.copy()
+                row['Threshold'] = threshold
+                row['TradeChainID'] = trade_id
+                all_rows.append(row)
+    
+    df_all = pd.DataFrame(all_rows)
+    df_all.to_csv(filename, index=False)
+    print(f"Saved {len(df_all)} rows to {filename}")
+
 
 def extract_pnl_and_expired(trades_list, threshold):
     pnl_all = []
@@ -361,6 +392,7 @@ def main():
         return
 
     rolled_results = simulate_rolling_trades(df, trades, thresholds=[0.05, 0.1])
+    save_rolled_trades_to_csv(rolled_results, 'rolled_trades_output_2025.csv')
     
     for i in rolled_results:
         print(f"Threshold {i} has {len(rolled_results[i])} trade chains.")
