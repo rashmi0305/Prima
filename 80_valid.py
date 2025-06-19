@@ -7,7 +7,7 @@ portfolio_value = 100000  # Initial portfolio value
 # plt.style.use('seaborn-darkgrid')
 
 # === LOAD DATA ===
-file_path=r"C:\Users\rashm\OneDrive\Desktop\PRIMA2\RUT Puts 2021.xlsx"
+file_path=r"C:\Users\rashm\OneDrive\Desktop\PRIMA2\RUT Puts 2024.xlsx"
 df = pd.read_excel(file_path)
 # Now convert using explicit format
 df['Date'] = pd.to_datetime(df['Date'], format='%m/%d/%Y', errors='coerce')
@@ -242,7 +242,7 @@ def simulate_rolling_trades(df, initial_trades, thresholds=[0.05, 0.1]):
                     'FinalStockPrice': '-',
                     'PnL': '-',
                     'Reason': 'Expiration not found for rolling',
-                    'PortfolioValue': portfolio_value
+                    'PortfolioValue': round(portfolio_value,2)
                 })
                     continue
                 portfolio_value += float(pnl)
@@ -284,12 +284,12 @@ def simulate_rolling_trades(df, initial_trades, thresholds=[0.05, 0.1]):
                     'Expiration': expiration,
                     'ShortStrike': short_strike,
                     'LongStrike': long_strike,
-                    'NetPremium': net_premium,
+                    'NetPremium': round(net_premium,2),
                     'CloseDate': roll_date,
                     'FinalStockPrice': stock_price_on_roll,
-                    'PnL': float(pnl),
-                    'Reason': '-',
-                    'PortfolioValue': portfolio_value
+                    'PnL': round(float(pnl),2),
+                    'Reason': 'ALer1-2',
+                    'PortfolioValue': round(portfolio_value,2)
                 })
                 
             
@@ -304,7 +304,39 @@ def simulate_rolling_trades(df, initial_trades, thresholds=[0.05, 0.1]):
                 current_long = new_long_strike
                 current_net = new_net_premium
                 l=0
-                
+                df_track = df_new_trade[(df_new_trade['Date'] > current_open) &(df_new_trade['Date'] < current_exp) &((current_exp - df_new_trade['Date']).dt.days < 30)]
+                condition = (df_track['StockPrice'] < current_short) & (df_track['StockPrice'] > current_long)
+                # condition = df_track['StockPrice'] < current_short & (df_track['StockPrice'] > current_long)
+                if condition.any():
+                    print(f"alert3 found for threshold {threshold}, rolling trade on {current_open} with stock price {df_track['StockPrice'].iloc[0]}")
+                    roll_date = df_track[condition]['Date'].iloc[0]
+                    stock_price = df_track[condition]['StockPrice'].iloc[0]
+                    pnl = bull_put_spread_pnl(np.array([stock_price]), current_short, current_long, current_net)
+                    
+                    portfolio_value+= float(pnl)
+                    trade_chain.append({
+                        'OpenDate': current_open,
+                        'Expiration': current_exp,
+                        'ShortStrike': current_short,
+                        'LongStrike': current_long,
+                        'NetPremium': round(current_net,2),
+                        'CloseDate': roll_date,
+                        'FinalStockPrice': stock_price,
+                        'PnL': round(float(pnl),2),
+                        'Reason': 'alert3 found',
+                        'PortfolioValue': round(portfolio_value,2)
+                    })
+                    current_open = roll_date
+                    short_r1= df[(df['Date'] == roll_date) & (df['Strike'] <= current_short)].copy()
+                    long_r1=df[(df['Date'] == roll_date) & (df['Strike'] >= current_long)].copy()
+                    if short_r1.empty or long_r1.empty:
+                        flag3=True
+                        portfolio_value = init_portfolio_value
+                    
+                    roll_expirations = sorted([d for d in df['Expiration'] if d >= roll_date + pd.DateOffset(months=3)])
+                    current_exp=roll_expirations[0]
+                    # new_net_premium2= short_r1['OptionPrice'].iloc[0] - long_r1['OptionPrice'].iloc[0]
+                print(f"alert3 not found")
             
                 while True:
                     df_track = df_new_trade[(df_new_trade['Date'] > current_open) & (df_new_trade['Date'] <= current_exp)]
@@ -330,12 +362,12 @@ def simulate_rolling_trades(df, initial_trades, thresholds=[0.05, 0.1]):
                         'Expiration': current_exp,
                         'ShortStrike': current_short,
                         'LongStrike': current_long,
-                        'NetPremium': current_net,
+                        'NetPremium': round(current_net,2),
                         'CloseDate': "-",
                         'FinalStockPrice': final_price,
-                        'PnL': float(pnl),
-                        'Reason': 'condition2 not met',
-                        'PortfolioValue': portfolio_value
+                        'PnL': round(float(pnl),2),
+                        'Reason': 'condition4 not met',
+                        'PortfolioValue': round(portfolio_value,2)
                          })
                        
                         break
@@ -352,12 +384,12 @@ def simulate_rolling_trades(df, initial_trades, thresholds=[0.05, 0.1]):
                         'Expiration': current_exp,
                         'ShortStrike': current_short,
                         'LongStrike': current_long,
-                        'NetPremium': current_net,
+                        'NetPremium': round(current_net,2),
                         'CloseDate': roll_date2,
                         'FinalStockPrice': stock_price2,
-                        'PnL': float(pnl),
-                        'Reason': '-',
-                        'PortfolioValue': portfolio_value
+                        'PnL': round(float(pnl),2),
+                        'Reason': 'alert4 found',
+                        'PortfolioValue': round(portfolio_value,2)
                     })
 
                     # if method == 'method1':
@@ -421,12 +453,12 @@ def simulate_rolling_trades(df, initial_trades, thresholds=[0.05, 0.1]):
                     'Expiration': expiration,
                     'ShortStrike': short_strike,
                     'LongStrike': long_strike,
-                    'NetPremium': net_premium,
+                    'NetPremium': round(net_premium,2),
                     'CloseDate': "No alert",
                     'FinalStockPrice': stock_price,
-                    'PnL': float(PNL),
+                    'PnL': round(float(PNL),2),
                     'Reason': 'No condition met for rolling',
-                    'PortfolioValue': portfolio_value
+                    'PortfolioValue': round(portfolio_value,2)
                 })
              rolled_trades_results[threshold].append(trade_chain)
              print(f"condition1 not found for threshold {threshold}, rolling trades complete.")
@@ -435,17 +467,28 @@ def simulate_rolling_trades(df, initial_trades, thresholds=[0.05, 0.1]):
 
 import pandas as pd
 
+
 def save_rolled_trades_to_csv(rolled_trades_results, filename='rolled_trades.csv'):
     all_rows = []
     for threshold, trade_chains in rolled_trades_results.items():
+        COUNT=1000
         for trade_id, chain in enumerate(trade_chains):
             for trade in chain:
                 row = trade.copy()
                 row['Threshold'] = threshold
                 row['TradeChainID'] = trade_id
+                row['Trade_ID']=COUNT+1
+                COUNT+=1
                 all_rows.append(row)
     
     df_all = pd.DataFrame(all_rows)
+
+    # Ensure TradeChainID is the first column
+    cols = df_all.columns.tolist()
+    if 'Trade_ID' in cols:
+        cols.insert(0, cols.pop(cols.index('Trade_ID')))
+        df_all = df_all[cols]
+
     df_all.to_csv(filename, index=False)
     print(f"Saved {len(df_all)} rows to {filename}")
 
@@ -495,7 +538,7 @@ def main():
         return
 
     rolled_results = simulate_rolling_trades(df, trades, thresholds=[0.05, 0.1])
-    save_rolled_trades_to_csv(rolled_results, 'rolled_trades_output_2021.csv')
+    save_rolled_trades_to_csv(rolled_results, 'rolled_trades_output_2024.csv')
     
     # for i in rolled_results:
     #     print(f"Threshold {i} has {len(rolled_results[i])} trade chains.")
