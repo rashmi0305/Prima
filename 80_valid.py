@@ -48,6 +48,10 @@ def find_nearest_strike_row(df, date, exp,sp, target_strike):
     df_filtered = df[(df['Date'] == date) & (df['Expiration']==exp) &(df['StockPrice']==sp)].copy()
     if df_filtered.empty:
         return None
+    cond=df_filtered['Strike']<= target_strike
+    df_filtered = df_filtered[cond]
+    if df_filtered.empty:
+        return None
     df_filtered['StrikeDiff'] = (df_filtered['Strike'] - target_strike).abs()
     nearest_row = df_filtered.sort_values(by='StrikeDiff').iloc[0]
     return nearest_row
@@ -89,12 +93,16 @@ def find_short_strike_trades(df, trade_dates, spread=SPREAD):
         trade = {
             'OpenDate': trade_date,
             'Expiration': short_strike_row['Expiration'],
-            'ShortStrike': short_strike,
-            'LongStrike': long_strike,
+            'ShortStrike': short_strike_row['Strike'],
+            'LongStrike': long_strike_row['Strike'],
             'ShortPrice': option_price_short,
             'LongPrice': option_price_long,
             'Spread': spread,
             'StockPriceAtOpen': stock_price,
+            'ShortDelta': short_strike_row['Delta'],
+            'LongDelta': long_strike_row['Delta'],
+            'Short_option': option_price_short,
+            'Long_option': option_price_long,
         }
         trades.append(trade)
     # print("Number of trades found:", count)
