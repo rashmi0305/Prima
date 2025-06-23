@@ -230,7 +230,8 @@ def simulate_rolling_trades(df, initial_trades, thresholds=[0.1]):
                     'long_price_open': trade['LongPrice'],
                     'short_price_close': d_s,
                     'long_price_close': d_l,
-                    'Reason': 'ALert1',        
+                    'Reason': 'ALert-1',    
+                    'Description': '[Buffer] becomes <= [Buffer_Min]',
                 })
              SPREAD = round((short_strike - new_long_strike)/short_strike,2)
              df_initial = df[(df['Date'] >= roll_date1) & (df['Expiration'] == expiration) ].copy()
@@ -300,6 +301,7 @@ def simulate_rolling_trades(df, initial_trades, thresholds=[0.1]):
                     'short_price_close': d_s,
                     'long_price_close': d_l,
                     'Reason': 'Alert-2',
+                    'Description': '[Buffer] becomes <= 0%',
                 })
                 # New trade with same Short Strike, Long Strike = 0.9 * Short Strike, new expiration
             
@@ -330,6 +332,7 @@ def simulate_rolling_trades(df, initial_trades, thresholds=[0.1]):
                     'short_price_close': '-',
                     'long_price_close': '-',
                     'Reason': 'No expiration found after alert-2',
+                    'Description': '-',
                 })
                     rolled_trades_results[threshold].append(trade_chain)
                     continue
@@ -373,6 +376,7 @@ def simulate_rolling_trades(df, initial_trades, thresholds=[0.1]):
                     'short_price_close': '-',
                     'long_price_close': '-',
                     'Reason': 'No strikes found after alert-2',
+                    'Description': '-',
                 })
                     rolled_trades_results[threshold].append(trade_chain)
                     
@@ -389,7 +393,7 @@ def simulate_rolling_trades(df, initial_trades, thresholds=[0.1]):
                 current_open = short_row['Date'].iloc[0]
                 current_exp = roll_expirations[0]  # Use the first valid expiration date
                 current_short = new_short_strike
-                current_long = max_strike_row['Strike']
+                # current_long = max_strike_row['Strike']
                 current_net = net_credit
                 curr_delta= short_row['Delta'].iloc[0]
                 curr_sp= short_row['StockPrice'].iloc[0]
@@ -408,6 +412,7 @@ def simulate_rolling_trades(df, initial_trades, thresholds=[0.1]):
                     d_r2= df[(df['Date'] == roll_date) & (df['Strike'] <= current_long)].copy()
                     max_strike_row = d_r2.loc[d_r2['Strike'].idxmax()]
                     d_l = max_strike_row['OptionPrice']
+                    current_long = max_strike_row['Strike']
                     d_s= d_r1['OptionPrice'].iloc[0] if not d_r1.empty else 0
                     # d_l=  d_r2['OptionPrice'].iloc[0] if not d_r2.empty else 0
                     net_debit = d_s - d_l
@@ -434,6 +439,7 @@ def simulate_rolling_trades(df, initial_trades, thresholds=[0.1]):
                     'short_price_close': d_s,
                     'long_price_close': d_l,
                     'Reason': 'Alert-3',
+                    'Description': '[Stock_Price] is between [Long_Strike] and [Short_Strike] and days to[Expiration] drops below 30 days.',
                 })
                     roll_expirations = sorted([d for d in df['Expiration'] if d >= roll_expirations[0] + pd.DateOffset(months=1)])
                     current_exp=roll_expirations[0]
@@ -460,7 +466,7 @@ def simulate_rolling_trades(df, initial_trades, thresholds=[0.1]):
             
                 while True:
                     df_track = df[(df['Date'] > current_open) & (df['Date'] < current_exp)]
-                    condition2 = current_long-df_track['StockPrice'] <= threshold 
+                    condition2 = current_long-df_track['StockPrice'] > threshold 
                     if not condition2.any():
                           # Reset portfolio value if no condition met
                         if df_track.empty:
@@ -496,7 +502,8 @@ def simulate_rolling_trades(df, initial_trades, thresholds=[0.1]):
                          'long_price_open': new_long_price,
                          'short_price_close': 0,
                          'long_price_close':     0,
-                         'Reason': 'No  alert-4',
+                         'Reason': 'No -alert-4',
+                         'Description': '-',
                          })
                        
                         break
@@ -512,6 +519,7 @@ def simulate_rolling_trades(df, initial_trades, thresholds=[0.1]):
                     max_strike_row = d_r2.loc[d_r2['Strike'].idxmax()]
                     d_l = max_strike_row['OptionPrice']
                     d_s= d_r1['OptionPrice'].iloc[0] if not d_r1.empty else 0
+                    # current_long= max_strike_row['Strike']
                     # d_l=  d_r2['OptionPrice'].max() if not d_r2.empty else 0
                     
                     net_debit = d_s - d_l
@@ -538,10 +546,11 @@ def simulate_rolling_trades(df, initial_trades, thresholds=[0.1]):
                     'short_price_close': d_s,
                     'long_price_close':     d_l,
                     'Reason': 'Alert-4',
+                    'Description': 'Stock_Price < Long_Strike - Offset_Step',
                 })
 
                     # if method == 'method1':
-                    new_long = round((1 + 0.5 * threshold) * stock_price2, 2)
+                    new_long = round((1 + 0.05) * stock_price2, 2)
                     
                     new_short = round(new_long /(1-SPREAD), 2)
 
@@ -629,6 +638,7 @@ def simulate_rolling_trades(df, initial_trades, thresholds=[0.1]):
                     'short_price_close': s_c_p,
                     'long_price_close': l_c_p,
                     'Reason': 'No condition met for rolling afetr alert-1',
+                    'Description': '-',
                 })
                rolled_trades_results[threshold].append(trade_chain)
             else:
@@ -666,6 +676,7 @@ def simulate_rolling_trades(df, initial_trades, thresholds=[0.1]):
                     'short_price_close': 0,
                     'long_price_close':    0,
                     'Reason': 'No condition met for rolling ',
+                    'Description': '-',
                 })
              rolled_trades_results[threshold].append(trade_chain)
              print(f"condition1 not found for threshold {threshold}, rolling trades complete.")
