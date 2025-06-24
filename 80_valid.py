@@ -238,9 +238,7 @@ def simulate_rolling_trades(df, initial_trades, thresholds=[0.1]):
              sh= df_initial[df_initial['Strike'] == short_strike]
              lo= df_initial[df_initial['Strike'] <= new_long_strike]  
              
-             max_strike_row = lo.loc[lo['Strike'].idxmax()]
-             d_l = max_strike_row['OptionPrice']
-             open_date = df_initial['Date'].iloc[0]     
+                  
              if sh.empty or lo.empty:
                     print(f"Short or Long strike not found for new trade on {roll_date1}.========================== Skipping trade.")
                     flag2=True
@@ -251,14 +249,16 @@ def simulate_rolling_trades(df, initial_trades, thresholds=[0.1]):
                     rolled_trades_results[threshold].append(trade_chain)
                     continue
              new_short_price = sh['OptionPrice'].iloc[0] 
-             
+             max_strike_row = lo.loc[lo['Strike'].idxmax()]
+             d_l = max_strike_row['OptionPrice']
+             open_date = df_initial['Date'].iloc[0]
              new_long_price = d_l
              new_premium = new_short_price - new_long_price
              net_credit = new_premium * contracts * 100
              net_credit = round(net_credit, 2)
              p1=portfolio_value
              portfolio_value += net_credit
-             df_initial = df[(df['Date'] > open_date) & (df['Expiration'] < expiration)].copy()
+             df_initial = df[(df['Date'] > open_date) & (df['Date'] < expiration) & (df['Expiration']==expiration)].copy()
              condition1 = df_initial['StockPrice'] <= short_strike
              o_p= sh['StockPrice'].iloc[0]
              buffer= (o_p- short_strike)/ short_strike
@@ -272,15 +272,20 @@ def simulate_rolling_trades(df, initial_trades, thresholds=[0.1]):
                 # rolled_trades_results[threshold].append(trade_chain)
                 # trade_chain = []  # Reset for new trade chain
                 d_r1= df[(df['Date'] == roll_date)   & (df['Strike'] == short_strike) & (df['Expiration']==expiration)].copy()
-                d_r2= df[(df['Date'] == roll_date)  & (df['Strike'] <= new_long_strike) & (df['Expiration']==expiration)].copy()
-                max_strike_row = d_r2.loc[d_r2['Strike'].idxmax()]
-                d_l = max_strike_row['OptionPrice']
+                d_r2= df[(df['Date'] == roll_date)  & (df['Strike'] == new_long_strike) & (df['Expiration']==expiration)].copy()
+                max_strike_row = d_r2.loc[d_r2['Strike'].idxmax()] if not d_r2.empty else 0
+                if d_r1.empty or d_r2.empty:
+                    flag2=True
+                    portfolio_value = init_portfolio_value
+                    continue
+                d_l = max_strike_row['OptionPrice'] if not d_r2.empty else 0
                 d_s= d_r1['OptionPrice'].iloc[0] if not d_r1.empty else 0
                 # d_l=  d_r2['OptionPrice'].iloc[0] if not d_r2.empty else 0
                 net_debit = d_s - d_l
                 net_debit = round(net_debit * contracts * 100, 2)
                 portfolio_value -= net_debit
-                trade_chain.append({
+                if not d_r1.empty and not d_r2.empty :
+                    trade_chain.append({
                     'OpenDate': open_date,
                     'CloseDate': roll_date,
                     'InitialPortfolioValue': round(p1,2),
@@ -302,8 +307,8 @@ def simulate_rolling_trades(df, initial_trades, thresholds=[0.1]):
                     'long_price_close': d_l,
                     'Reason': 'Alert-2',
                     'Description': '[Buffer] becomes <= 0%',
-                })
-                # New trade with same Short Strike, Long Strike = 0.9 * Short Strike, new expiration
+                  })
+                  # New trade with same Short Strike, Long Strike = 0.9 * Short Strike, new expiration
             
                 new_short_strike = short_strike  # remains same
                 new_long_strike = round(0.9 * short_strike, 2)
@@ -349,9 +354,8 @@ def simulate_rolling_trades(df, initial_trades, thresholds=[0.1]):
 
                               # Add a delta filter around 0.3 for the short leg (common heuristic)
                 short_row = df_new_trade[(df_new_trade['Strike'] == short_strike) ]
-                long_row = df_new_trade[(df_new_trade['Strike'] <= new_long_strike)]  
-                max_strike_row = long_row.loc[long_row['Strike'].idxmax()]
-                d_l = max_strike_row['OptionPrice']
+                long_row = df_new_trade[(df_new_trade['Strike'] == new_long_strike)]  
+                
 
                 if short_row.empty or long_row.empty:
                     flag2=True
@@ -382,7 +386,8 @@ def simulate_rolling_trades(df, initial_trades, thresholds=[0.1]):
                     
                     print(f"Short or Long strike not found for new trade on {roll_date}. Skipping trade.")
                     continue
-                
+                max_strike_row = long_row.loc[long_row['Strike'].idxmax()]
+                d_l = max_strike_row['OptionPrice']
                 new_short_price = short_row['OptionPrice'].iloc[0]
                 new_long_price = d_l
                 net_credit = new_short_price - new_long_price
@@ -393,7 +398,7 @@ def simulate_rolling_trades(df, initial_trades, thresholds=[0.1]):
                 current_open = short_row['Date'].iloc[0]
                 current_exp = roll_expirations[0]  # Use the first valid expiration date
                 current_short = new_short_strike
-                # current_long = max_strike_row['Strike']
+                current_long = max_strike_row['Strike']
                 current_net = net_credit
                 curr_delta= short_row['Delta'].iloc[0]
                 curr_sp= short_row['StockPrice'].iloc[0]
@@ -409,57 +414,63 @@ def simulate_rolling_trades(df, initial_trades, thresholds=[0.1]):
                     stock_price = df_track[condition]['StockPrice'].iloc[0]
                     
                     d_r1= df[(df['Date'] == roll_date) & (df['Strike'] == current_short)].copy()
-                    d_r2= df[(df['Date'] == roll_date) & (df['Strike'] <= current_long)].copy()
-                    max_strike_row = d_r2.loc[d_r2['Strike'].idxmax()]
-                    d_l = max_strike_row['OptionPrice']
-                    current_long = max_strike_row['Strike']
-                    d_s= d_r1['OptionPrice'].iloc[0] if not d_r1.empty else 0
+                    d_r2= df[(df['Date'] == roll_date) & (df['Strike'] == current_long)].copy()
+                    if d_r1.empty or d_r2.empty:
+                        flag3=True
+                        portfolio_value = init_portfolio_value
+                    if not d_r1.empty and not d_r2.empty:
+                      max_strike_row = d_r2.loc[d_r2['Strike'].idxmax()]
+                      d_l = max_strike_row['OptionPrice']
+                      current_long = max_strike_row['Strike']
+                      d_s= d_r1['OptionPrice'].iloc[0] if not d_r1.empty else 0
                     # d_l=  d_r2['OptionPrice'].iloc[0] if not d_r2.empty else 0
-                    net_debit = d_s - d_l
-                    net_debit = round(net_debit * contracts * 100, 2)
-                    portfolio_value -= net_debit
-                    trade_chain.append({
-                    'OpenDate': current_open,
-                    'CloseDate': roll_date,
-                    'InitialPortfolioValue': round(p1,2),
-                    'End_PortfolioValue': round(portfolio_value,2),
-                    'OpenPrice': short_row['StockPrice'].iloc[0],
-                    'FinalStockPrice': stock_price,
-                    'Expiration': roll_expirations[0],
-                    'ShortStrike': current_short,                
-                    'LongStrike': current_long,
-                    'Contracts': contracts,
-                    'Buffer': round(buffer*100,2),
-                    'delta': curr_delta ,
-                    'Spread': round(SPREAD*100,2),
-                    'NetCredit': round(current_net,2),
-                     'NetDebit': round(net_debit,2),
-                    'short_price_open': new_short_price,
-                    'long_price_open': new_long_price,
-                    'short_price_close': d_s,
-                    'long_price_close': d_l,
-                    'Reason': 'Alert-3',
-                    'Description': '[Stock_Price] is between [Long_Strike] and [Short_Strike] and days to[Expiration] drops below 30 days.',
-                })
+                      net_debit = d_s - d_l
+                      net_debit = round(net_debit * contracts * 100, 2)
+                      portfolio_value -= net_debit
+                      trade_chain.append({
+                       'OpenDate': current_open,
+                       'CloseDate': roll_date,
+                       'InitialPortfolioValue': round(p1,2),
+                       'End_PortfolioValue': round(portfolio_value,2),
+                       'OpenPrice': short_row['StockPrice'].iloc[0],
+                       'FinalStockPrice': stock_price,
+                       'Expiration': roll_expirations[0],
+                       'ShortStrike': current_short,                
+                       'LongStrike': current_long,
+                       'Contracts': contracts,
+                       'Buffer': round(buffer*100,2),
+                       'delta': curr_delta ,
+                       'Spread': round(SPREAD*100,2),
+                       'NetCredit': round(current_net,2),
+                        'NetDebit': round(net_debit,2),
+                       'short_price_open': new_short_price,
+                       'long_price_open': new_long_price,
+                       'short_price_close': d_s,
+                       'long_price_close': d_l,
+                       'Reason': 'Alert-3',
+                       'Description': '[Stock_Price] is between [Long_Strike] and [Short_Strike] and days to[Expiration] drops below 30 days.',
+                         })
                     roll_expirations = sorted([d for d in df['Expiration'] if d >= roll_expirations[0] + pd.DateOffset(months=1)])
                     current_exp=roll_expirations[0]
                     short_r1= df[(df['Date'] >= roll_date) & (df['Strike'] == current_short) & (df['Expiration']==roll_expirations[0]) ].copy()
-                    long_r1=df[(df['Date'] >= roll_date) & (df['Strike'] <= current_long) & (df['Expiration']==roll_expirations[0])].copy()
-                    max_strike_row = long_r1.loc[long_r1['Strike'].idxmax()]
-                    d_l = max_strike_row['OptionPrice']
+                    long_r1=df[(df['Date'] >= roll_date) & (df['Strike'] == current_long) & (df['Expiration']==roll_expirations[0])].copy()
+                    
                     if short_r1.empty or long_r1.empty:
                         flag3=True
                         portfolio_value = init_portfolio_value
-                    current_open=short_r1['Date'].iloc[0]
-                    curr_delta= short_r1['Delta'].iloc[0]
-                    curr_sp= short_r1['StockPrice'].iloc[0]
-                    buffer= (short_r1['StockPrice'].iloc[0]- current_short)/ current_short
-                    net_credit= short_r1['OptionPrice'].iloc[0] - long_r1['OptionPrice'].iloc[0]
-                    net_credit = round(net_credit * contracts * 100, 2)
-                    new_short_price= short_r1['OptionPrice'].iloc[0]
-                    new_long_price= d_l
-                    p1=portfolio_value
-                    portfolio_value += net_credit
+                    if not flag3:   
+                      max_strike_row = long_r1.loc[long_r1['Strike'].idxmax()]
+                      d_l = max_strike_row['OptionPrice']
+                      current_open=short_r1['Date'].iloc[0]
+                      curr_delta= short_r1['Delta'].iloc[0]
+                      curr_sp= short_r1['StockPrice'].iloc[0]
+                      buffer= (short_r1['StockPrice'].iloc[0]- current_short)/ current_short
+                      net_credit= short_r1['OptionPrice'].iloc[0] - long_r1['OptionPrice'].iloc[0]
+                      net_credit = round(net_credit * contracts * 100, 2)
+                      new_short_price= short_r1['OptionPrice'].iloc[0]
+                      new_long_price= d_l
+                      p1=portfolio_value
+                      portfolio_value += net_credit
                     
                     # new_net_premium2= short_r1['OptionPrice'].iloc[0] - long_r1['OptionPrice'].iloc[0]
                 print(f"alert3 not found")
@@ -473,12 +484,12 @@ def simulate_rolling_trades(df, initial_trades, thresholds=[0.1]):
                             print(f"No data to track between {current_open} and {current_exp}. Skipping final PnL calc.")
                             # break  # or continue, depending on context
                         print(f"condition2 not found for threshold {threshold}, rolling trades complete.")
-                        df2 = df[(df['Date'] == roll_date) & (df['Expiration'] <= roll_expirations[0])].copy()
+                        df2 = df[(df['Date'] == roll_date) & (df['Expiration'] <= current_exp)].copy()
                         if df2.empty:
                             print(f"No data found for roll date {roll_date} and expiration {roll_expirations[0]}. Skipping final PnL calc.")
                             flag1=True
                             break
-                        final_price= df[df['Date'] <=roll_expirations[0]]['StockPrice'].iloc[0]
+                        final_price= df[df['Date'] <=current_exp]['StockPrice'].iloc[0]
                         
                         
                         
@@ -515,7 +526,12 @@ def simulate_rolling_trades(df, initial_trades, thresholds=[0.1]):
                     stock_price2 = df_track[condition2]['StockPrice'].iloc[0]
                   
                     d_r1= df[(df['Date'] == roll_date2) & (df['Strike'] == current_short) & (df['Expiration']==roll_expirations[0])].copy()
-                    d_r2= df[(df['Date'] == roll_date2) & (df['Strike'] <= current_long) & (df['Expiration']==roll_expirations[0])].copy()
+                    d_r2= df[(df['Date'] == roll_date2) & (df['Strike'] == current_long) & (df['Expiration']==roll_expirations[0])].copy()
+                    if d_r1.empty or d_r2.empty:
+                        portfolio_value =init_portfolio_value
+                        flag3=True
+                        print(f"Short or Long strike not found for new trade on {roll_date2}.{new_long}======={new_short} Skipping trade--2.")
+                        break
                     max_strike_row = d_r2.loc[d_r2['Strike'].idxmax()]
                     d_l = max_strike_row['OptionPrice']
                     d_s= d_r1['OptionPrice'].iloc[0] if not d_r1.empty else 0
@@ -557,10 +573,9 @@ def simulate_rolling_trades(df, initial_trades, thresholds=[0.1]):
                     df_new_trade2 = df[(df['Date'] > roll_date2) & (df['Expiration'] == current_exp)].copy()
                     
 
-                    short_row2 = df_new_trade2[(df_new_trade2['Strike'] >= new_short) ]
-                    long_row2 = df_new_trade2[(df_new_trade2['Strike'] <= new_long ) & (df_new_trade2['Strike'] <= new_short)]
-                    max_strike_row = long_row2.loc[long_row2['Strike'].idxmax()]
-                    d_l = max_strike_row['OptionPrice']
+                    short_row2 = df_new_trade2[(df_new_trade2['Strike'] == new_short) ]
+                    long_row2 = df_new_trade2[(df_new_trade2['Strike'] == new_long ) ]
+                    
 
                     if short_row2.empty or long_row2.empty:
                         portfolio_value =init_portfolio_value
@@ -568,6 +583,8 @@ def simulate_rolling_trades(df, initial_trades, thresholds=[0.1]):
                         print(f"Short or Long strike not found for new trade on {roll_date2}.{new_long}======={new_short} Skipping trade--2.")
                         break
                     # SPREAD = short_row2['Strike'].iloc[0] - long_row2['Strike'].iloc[0]
+                    max_strike_row = long_row2.loc[long_row2['Strike'].idxmax()]
+                    d_l = max_strike_row['OptionPrice']
                     new_short_price = short_row2['OptionPrice'].iloc[0]
                     new_long_price = d_l
                     new_net = new_short_price - new_long_price
